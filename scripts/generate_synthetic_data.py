@@ -12,11 +12,12 @@ Outputs (in /data/raw):
 
 from __future__ import annotations
 
+import argparse
 import csv
 import random
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, List
 
@@ -114,7 +115,7 @@ def generate_products(fake: Faker, count: int) -> List[Product]:
 
 def generate_orders(fake: Faker, customers: List[Customer], count: int) -> List[Order]:
     statuses = ["pending", "processing", "fulfilled", "cancelled"]
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     orders = []
     for _ in range(count):
         order_date = now - timedelta(days=random.randint(0, 180))
@@ -129,10 +130,14 @@ def generate_orders(fake: Faker, customers: List[Customer], count: int) -> List[
     return orders
 
 
-def generate_order_items(orders: List[Order], products: List[Product]) -> List[OrderItem]:
+def generate_order_items(
+    orders: List[Order],
+    products: List[Product],
+    max_items_per_order: int,
+) -> List[OrderItem]:
     items = []
     for order in orders:
-        for _ in range(random.randint(1, 4)):
+        for _ in range(random.randint(1, max_items_per_order)):
             product = random.choice(products)
             quantity = random.randint(1, 5)
             items.append(
@@ -168,29 +173,63 @@ def generate_payments(orders: List[Order], items: List[OrderItem]) -> List[Payme
     return payments
 
 
-def main() -> None:
-    fake = Faker()
-    Faker.seed(1337)
-    random.seed(1337)
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate synthetic e-commerce CSV files."
+    )
+    parser.add_argument("--customers", type=int, default=200, help="Number of customers")
+    parser.add_argument("--products", type=int, default=80, help="Number of products")
+    parser.add_argument("--orders", type=int, default=400, help="Number of orders")
+    parser.add_argument(
+        "--max-items-per-order",
+        type=int,
+        default=4,
+        help="Maximum number of line items per order",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=1337,
+        help="Seed for deterministic output (set to omit for randomness)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUTPUT_DIR,
+        help="Directory to write CSV files into",
+    )
+    return parser.parse_args()
 
-    customers = generate_customers(fake, 200)
-    products = generate_products(fake, 80)
-    orders = generate_orders(fake, customers, 400)
-    order_items = generate_order_items(orders, products)
+
+def main() -> None:
+    args = _parse_args()
+    fake = Faker()
+    if args.seed is not None:
+        Faker.seed(args.seed)
+        random.seed(args.seed)
+    else:
+        random.seed()
+
+    output_dir = args.output_dir.resolve()
+
+    customers = generate_customers(fake, args.customers)
+    products = generate_products(fake, args.products)
+    orders = generate_orders(fake, customers, args.orders)
+    order_items = generate_order_items(orders, products, args.max_items_per_order)
     payments = generate_payments(orders, order_items)
 
     _write_csv(
-        OUTPUT_DIR / "customers.csv",
+        output_dir / "customers.csv",
         Customer.__dataclass_fields__.keys(),
         (vars(customer).values() for customer in customers),
     )
     _write_csv(
-        OUTPUT_DIR / "products.csv",
+        output_dir / "products.csv",
         Product.__dataclass_fields__.keys(),
         (vars(product).values() for product in products),
     )
     _write_csv(
-        OUTPUT_DIR / "orders.csv",
+        output_dir / "orders.csv",
         ["id", "customer_id", "order_date", "status"],
         (
             [order.id, order.customer_id, order.order_date.isoformat(), order.status]
@@ -198,12 +237,12 @@ def main() -> None:
         ),
     )
     _write_csv(
-        OUTPUT_DIR / "order_items.csv",
+        output_dir / "order_items.csv",
         OrderItem.__dataclass_fields__.keys(),
         (vars(item).values() for item in order_items),
     )
     _write_csv(
-        OUTPUT_DIR / "payments.csv",
+        output_dir / "payments.csv",
         ["id", "order_id", "payment_method", "amount", "paid_at"],
         (
             [p.id, p.order_id, p.payment_method, f"{p.amount:.2f}", p.paid_at.isoformat()]
@@ -211,7 +250,7 @@ def main() -> None:
         ),
     )
 
-    print(f"Wrote {OUTPUT_DIR} with 5 CSV files.")
+    print(f"Wrote {output_dir} with 5 CSV files.")
 
 
 if __name__ == "__main__":

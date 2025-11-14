@@ -5,6 +5,7 @@ Load the generated CSV data into a SQLite database.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import sqlite3
 from pathlib import Path
@@ -77,24 +78,52 @@ def _insert_many(conn: sqlite3.Connection, table: str, rows):
     conn.executemany(sql, ([row[col] for col in columns] for row in rows))
 
 
-def main() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if DB_PATH.exists():
-        DB_PATH.unlink()
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Ingest CSV data into SQLite.")
+    parser.add_argument(
+        "--raw-dir",
+        type=Path,
+        default=RAW_DIR,
+        help="Directory containing generated CSV files",
+    )
+    parser.add_argument(
+        "--db-path",
+        type=Path,
+        default=DB_PATH,
+        help="Path to output SQLite database",
+    )
+    parser.add_argument(
+        "--keep-existing",
+        action="store_true",
+        help="If set, reuse existing database file instead of deleting",
+    )
+    return parser.parse_args()
 
-    conn = sqlite3.connect(DB_PATH)
+
+def main() -> None:
+    args = _parse_args()
+    raw_dir = args.raw_dir.resolve()
+    db_path = args.db_path.resolve()
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    if db_path.exists() and not args.keep_existing:
+        db_path.unlink()
+
+    conn = sqlite3.connect(db_path)
     try:
         for statement in CREATE_STATEMENTS:
             conn.execute(statement)
 
-        _insert_many(conn, "customers", _load_csv_rows(RAW_DIR / "customers.csv"))
-        _insert_many(conn, "products", _load_csv_rows(RAW_DIR / "products.csv"))
-        _insert_many(conn, "orders", _load_csv_rows(RAW_DIR / "orders.csv"))
-        _insert_many(conn, "order_items", _load_csv_rows(RAW_DIR / "order_items.csv"))
-        _insert_many(conn, "payments", _load_csv_rows(RAW_DIR / "payments.csv"))
+        _insert_many(conn, "customers", _load_csv_rows(raw_dir / "customers.csv"))
+        _insert_many(conn, "products", _load_csv_rows(raw_dir / "products.csv"))
+        _insert_many(conn, "orders", _load_csv_rows(raw_dir / "orders.csv"))
+        _insert_many(
+            conn, "order_items", _load_csv_rows(raw_dir / "order_items.csv")
+        )
+        _insert_many(conn, "payments", _load_csv_rows(raw_dir / "payments.csv"))
 
         conn.commit()
-        print(f"Ingested CSV data into {DB_PATH}")
+        print(f"Ingested CSV data into {db_path}")
     finally:
         conn.close()
 

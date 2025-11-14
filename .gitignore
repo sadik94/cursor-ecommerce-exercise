@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+
+data/raw/
+!data/raw/.gitkeep
+data/sqlite/
+!data/sqlite/.gitkeep
+
+# SQLite artifacts
+*.db
+
